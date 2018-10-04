@@ -2,7 +2,7 @@ import json
 import sys
 
 class JSON2ECL(object):
-    def __init__(self, JSON, name=''):
+    def __init__(self, JSON):
         self.JSON = JSON
         self.ECL = ""
         self.nextcode = 1
@@ -10,10 +10,10 @@ class JSON2ECL(object):
         self.loop_code_stack = []
         self.next_loop_code = 0
         self.ecl_blocks = [""]
-        if not name:
-            self.name = 'JTE'
+        if self.JSON.get('name'):
+            self.name = self.JSON.get('name')
         else:
-            self.name = name
+            self.name = 'JTE'
     
     def get_json(self):
         return self.json_data
@@ -67,6 +67,7 @@ class JSON2ECL(object):
         #    self.loop_start(loop_time, loop_int)
         danmaku_ecl = ""
         danmaku_ecl += self.ecl_begin(name)
+        danmaku_ecl += self.ecl_var([''])
 
         danmaku_ecl += self.bullet_begin()
 
@@ -92,6 +93,13 @@ class JSON2ECL(object):
 
     def translate(self):
         self.ecl_blocks[0] += self.ecl_begin('main')
+        if self.JSON.get('loop_info'):
+            loop_info = self.JSON.get('loop_info')
+            self.ecl_blocks[0] += self.ecl_var(['{}_loopcount'.format(self.name)])
+            self.ecl_blocks[0] += self.ecl_loop_start(loop_info.get('count'))
+        else:
+            self.ecl_blocks[0] += self.ecl_var([''])
+            
         for danmaku in self.JSON['danmaku']:
             Type = danmaku.get('type','bullet')
             if Type=="bullet":
@@ -99,8 +107,27 @@ class JSON2ECL(object):
                 self.ecl_blocks[0] += self.ecl_call(code)
                 self.ecl_blocks.append(self.bullet_parser(danmaku, code))
         
+        if self.JSON.get('loop_info'):
+            loop_info = self.JSON.get('loop_info')
+            self.ecl_blocks[0] += self.wait(loop_info.get('wait'))
+            self.ecl_blocks[0] += self.ecl_loop_end()
+
         self.ecl_blocks[0] += self.ecl_end()
         self.ECL = '\n'.join(self.ecl_blocks)
+
+    def ecl_var(self, vars):
+        sentence = 'var'
+        for var in vars:
+            sentence+=' '+var
+        sentence += ';\n'
+        return sentence
+
+    def ecl_loop_start(self, count):
+
+        return '${}_loopcount={};\n{}_LOOP1:\n'.format(self.name, count-1, self.name)
+    
+    def ecl_loop_end(self):
+        return 'if (${}_loopcount--) goto {}_LOOP1 @ 0;'.format(self.name, self.name)
 
     def ecl_call(self, name):
         return 'ins_11("{}");\n'.format(self.ecl_name(name))
@@ -109,7 +136,7 @@ class JSON2ECL(object):
         return '{}_{}'.format(self.name, name)
 
     def ecl_begin(self, name):
-        return 'sub {}_{}(){{\n'.format(self.name, str(name)) + 'var ;\n'
+        return 'sub {}_{}(){{\n'.format(self.name, str(name))
 
     def ecl_end(self):
         return '}\n'
@@ -127,22 +154,6 @@ class JSON2ECL(object):
     def wait(self, frame):
         return 'ins_23(%d);\n'%frame
 
-    '''def loop_start(self, time, interval):
-        code = self.get_next_loop_code()
-        self.loop_code_stack.append((code, time, interval))
-        
-        return 'goto JTE_LOOP_%d_2 @ 0;\n'%(code)
-        return 'JTE_LOOP_%d_1:\n'%(code)
-
-    def loop_end(self):
-        code, time, interval = self.loop_code_stack.pop()
-        if time==-1:
-            time = 10000000
-        
-        return 'ins_23(%d);\n'%(interval)
-        return 'JTE_LOOP_%d_2:\n'%(code)
-        return 'if (ins_78(%d) != 1) goto JTE_LOOP_%d_1 @ 0;\n'%(time, code)
-    '''
     def set_bullet_image(self, img_code, color_code):
         return 'ins_602(%d, %d, %d);\n'%(self.curcode, img_code, color_code)
     
@@ -174,6 +185,6 @@ if __name__=='__main__':
         json_data = json.load(json_file)
         json_file.close()
         J = JSON2ECL(json_data)
-        ecl_file = open('ecl.txt', 'w')
+        ecl_file = open('{}.txt'.format(J.name), 'w')
         ecl_file.write(J.parse())
         ecl_file.close()
